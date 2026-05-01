@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Famous Analytics - Dashboard</title>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Famous Analytics</h1>
+            <div class="header-controls">
+                <button id="estoqueBtn" class="estoque-btn">
+                    Estoque
+                </button>
+                <button id="updateBtn" class="update-btn">
+                    Atualizar Dados
+                </button>
+                <div id="lastUpdate" class="last-update">Última atualização: --</div>
+            </div>
+        </header>
+
+        <!-- Status da atualização -->
+        <div id="statusBar" class="status-bar" style="display: none;">
+            <div class="status-message">
+                <span class="spinner"></span>
+                Executando bot, aguarde...
+            </div>
+        </div>
+
+        <!-- Cards de Resumo Geral -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-title">Lucro Total da Semana</div>
+                <div class="stat-value" id="totalLucro">$ 0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Lucro Estimado Semana</div>
+                <div class="stat-value" id="totalLucroEstimado">$ 0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Vendas por Hora (Média)</div>
+                <div class="stat-value" id="vendasPorHora">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Vendas por Dia (Média)</div>
+                <div class="stat-value" id="vendasPorDia">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Total de Produtos</div>
+                <div class="stat-value" id="totalProdutos">0</div>
+            </div>
+        </div>
+
+        <!-- Tabela de Produtos -->
+        <div class="table-container">
+            <h2>Produtos</h2>
+            <div class="filters">
+                <input type="text" id="searchInput" placeholder="Buscar produto..." class="search-input">
+                <select id="sortSelect" class="sort-select">
+                    <option value="lucro">Ordenar por Lucro</option>
+                    <option value="vendas">Ordenar por Vendas</option>
+                    <option value="nome">Ordenar por Nome</option>
+                </select>
+            </div>
+            <div class="table-wrapper">
+                <table id="productsTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Produto</th>
+                            <th>Preço</th>
+                            <th>Estoque</th>
+                            <th>Vendas/Semana</th>
+                            <th>Lucro/Semana</th>
+                            <th>Vendas/Hora</th>
+                            <th>Vendas/Dia</th>
+                            <th>Lucro/Hora</th>
+                            <th>Lucro/Dia</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        <tr>
+                            <td colspan="10" class="loading">Carregando dados...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="script.js"></script>
+    <script type="module" src="estoque.js"></script>
+</body>
+</html>
