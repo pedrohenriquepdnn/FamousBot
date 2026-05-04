@@ -1,4 +1,4 @@
-// script.js - Atualize a URL do backend
+// script.js
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
@@ -13,15 +13,15 @@ const firebaseConfig = {
     measurementId: "G-KB5RXM3L0B"
 };
 
-// URL do backend - mude para a URL do seu Koyeb após o deploy
+// URL do backend
 const BACKEND_URL = window.location.origin;
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const COLLECTION_NAME = 'store_analytics';
 
 let produtosData = [];
 
-// Funções de formatação...
 function formatarNumero(valor) {
     if (valor === undefined || valor === null) return '0';
     return Math.round(valor).toLocaleString();
@@ -32,7 +32,6 @@ function formatarNumeroDecimal(valor) {
     return Math.round(valor * 10) / 10;
 }
 
-// Salvar no Firebase
 async function saveToFirebase(data) {
     try {
         const docRef = await addDoc(collection(db, COLLECTION_NAME), {
@@ -48,7 +47,6 @@ async function saveToFirebase(data) {
     }
 }
 
-// Buscar último dado do Firebase
 async function getLatestFromFirebase() {
     try {
         const q = query(collection(db, COLLECTION_NAME), orderBy("timestamp", "desc"), limit(1));
@@ -63,8 +61,8 @@ async function getLatestFromFirebase() {
     }
 }
 
-// Executar ciclo completo via backend
-async function executarCicloCompleto() {
+// Funcao APENAS para coleta de dados (botao Atualizar Dados)
+async function executarColetaDados() {
     const statusBar = document.getElementById('statusBar');
     const updateBtn = document.getElementById('updateBtn');
     
@@ -73,53 +71,57 @@ async function executarCicloCompleto() {
         updateBtn.classList.add('disabled');
         updateBtn.disabled = true;
         
-        mostrarMensagem("Executando ciclo completo (estoque + coleta), aguarde...", "info");
+        mostrarMensagem("Coletando dados da loja, aguarde...", "info");
         
-        const response = await fetch(`${BACKEND_URL}/api/full-cycle`, {
+        const response = await fetch(`${BACKEND_URL}/api/scrape`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
         
         const result = await response.json();
         
-        if (result.success && result.dados) {
-            await saveToFirebase(result.dados);
-            produtosData = result.dados.produtos;
-            atualizarInterface(result.dados);
+        if (result.success) {
+            await saveToFirebase(result.data);
+            produtosData = result.data.produtos;
+            atualizarInterface(result.data);
             atualizarUltimaAtualizacao(new Date().toISOString());
-            mostrarMensagem(`Ciclo completo finalizado! ${result.dados.totalProdutos} produtos carregados.`, "success");
+            mostrarMensagem(`Dados atualizados! ${result.data.totalProdutos} produtos carregados.`, "success");
         } else {
-            throw new Error(result.error || "Erro na execução");
+            throw new Error(result.error);
         }
         
     } catch (error) {
         console.error("Erro:", error);
-        mostrarMensagem(`Erro: ${error.message}`, "error");
+        mostrarMensagem(`Erro na coleta: ${error.message}`, "error");
         
         const backup = await getLatestFromFirebase();
         if (backup) {
             produtosData = backup.produtos;
             atualizarInterface(backup);
-            mostrarMensagem("Usando último backup disponível", "info");
+            mostrarMensagem("Usando ultimo backup disponivel", "info");
         }
     } finally {
         setTimeout(() => {
             statusBar.style.display = 'none';
             updateBtn.classList.remove('disabled');
             updateBtn.disabled = false;
-        }, 2000);
+        }, 3000);
     }
 }
 
-// Função apenas para estoque
+// Funcao APENAS para estoque (botao Estoque)
 async function executarEstoque() {
     const statusBar = document.getElementById('statusBar');
+    const estoqueBtn = document.getElementById('estoqueBtn');
     
     try {
         statusBar.style.display = 'block';
-        mostrarMensagem("Executando reposição de estoque, aguarde...", "info");
+        estoqueBtn.classList.add('disabled');
+        estoqueBtn.disabled = true;
         
-        const response = await fetch(`${BACKEND_URL}/api/stock`, {
+        mostrarMensagem("Executando reposicao de estoque, aguarde...", "info");
+        
+        const response = await fetch(`${BACKEND_URL}/api/open-stock`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
@@ -138,11 +140,12 @@ async function executarEstoque() {
     } finally {
         setTimeout(() => {
             statusBar.style.display = 'none';
+            estoqueBtn.classList.remove('disabled');
+            estoqueBtn.disabled = false;
         }, 3000);
     }
 }
 
-// Resto do código (atualizarInterface, renderizarTabela, etc.)
 function atualizarInterface(data) {
     document.getElementById('totalLucro').textContent = `$ ${formatarNumero(data.lucroTotal || 0)}`;
     document.getElementById('totalLucroEstimado').textContent = `$ ${formatarNumero(data.lucroTotalEstimado || 0)}`;
@@ -166,7 +169,7 @@ function renderizarTabela(produtos) {
     const sortBy = document.getElementById('sortSelect')?.value || 'lucro';
     
     if (!produtos || produtos.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="10" class="loading">Nenhum produto encontrado</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="10" class="loading">Nenhum produto encontrado</td</tr>';
         return;
     }
     
@@ -204,7 +207,7 @@ function renderizarTabela(produtos) {
 function atualizarUltimaAtualizacao(timestamp) {
     if (timestamp) {
         const date = new Date(timestamp);
-        document.getElementById('lastUpdate').textContent = `Última atualização: ${date.toLocaleString('pt-BR')}`;
+        document.getElementById('lastUpdate').textContent = `Ultima atualizacao: ${date.toLocaleString('pt-BR')}`;
     }
 }
 
@@ -242,8 +245,8 @@ async function carregarDadosIniciais() {
     }
 }
 
-// Eventos - atualizado para usar o ciclo completo
-document.getElementById('updateBtn')?.addEventListener('click', executarCicloCompleto);
+// Eventos - cada botao chama sua funcao especifica
+document.getElementById('updateBtn')?.addEventListener('click', executarColetaDados);
 document.getElementById('estoqueBtn')?.addEventListener('click', executarEstoque);
 document.getElementById('searchInput')?.addEventListener('input', () => renderizarTabela(produtosData));
 document.getElementById('sortSelect')?.addEventListener('change', () => renderizarTabela(produtosData));
