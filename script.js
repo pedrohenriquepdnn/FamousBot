@@ -14,10 +14,7 @@ const firebaseConfig = {
 };
 
 // URL do backend - mude para a URL do seu Koyeb após o deploy
-const BACKEND_URL = process.env.NODE_ENV === 'production' 
-    ? 'https://seu-app.koyeb.app'  // ← SUBSTITUA PELA URL DO SEU KOYEB
-    : 'http://localhost:3000';
-
+const BACKEND_URL = window.location.origin;
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const COLLECTION_NAME = 'store_analytics';
