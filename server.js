@@ -1,4 +1,4 @@
-// server.js
+// server.js - Versão para Render (mantendo sua lógica original)
 import express from 'express';
 import cors from 'cors';
 import { chromium } from 'playwright';
@@ -16,7 +16,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// Variável para controle de execução
+// Flag para evitar execução simultânea
 let isRunning = false;
 
 // FUNÇÃO REUTILIZÁVEL: Login e navegação inicial
@@ -47,128 +47,110 @@ async function fazerLoginENavegar(page, urlDestino = null) {
   }
 }
 
-function extrairNumero(texto) {
-  return Number(texto.replace(/[^0-9]/g, '')) || 0;
-}
-
-// FUNÇÃO: Processo completo de estoque
-async function executarEstoque() {
-  console.log(`\n[${new Date().toISOString()}] === INICIANDO PROCESSO DE ESTOQUE ===`);
-  
+// FUNÇÃO: Abrir página de estoque (SUA VERSÃO ORIGINAL adaptada)
+async function abrirPaginaEstoque() {
   const browser = await chromium.launch({
-    headless: true
+    headless: true, // Mudado para true no Render
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
   const page = await browser.newPage();
+  console.log("Abrindo estoque...");
 
   try {
     await fazerLoginENavegar(page, 'https://jogofamous.com/projects?c=itens');
     
     console.log("Página de estoque aberta com sucesso!");
     await page.waitForTimeout(5000);
-    
-    // Extrair IDs dos itens
-    console.log("Extraindo IDs dos itens...");
     await page.waitForSelector('tbody tr', { timeout: 30000 });
     
-    const itensInfo = await page.evaluate(() => {
-      const itens = [];
-      const linhas = document.querySelectorAll('tbody tr:not(.footable-row-detail)');
-      
-      linhas.forEach(linha => {
-        const botaoGerenciar = linha.querySelector('button.btn-dark');
-        if (botaoGerenciar && botaoGerenciar.getAttribute('onclick')) {
-          const onclick = botaoGerenciar.getAttribute('onclick');
-          const match = onclick.match(/item=(\d+)/);
-          if (match) {
-            const id = match[1];
-            const nome = linha.querySelector('td:first-child')?.innerText?.trim() || '';
-            const estoqueTexto = linha.querySelector('td:nth-child(3)')?.innerText || '';
-            const precoTexto = linha.querySelector('td:nth-child(5)')?.innerText || '';
-            
-            itens.push({
-              id: id,
-              nome: nome,
-              estoqueTexto: estoqueTexto,
-              precoTexto: precoTexto
-            });
-          }
-        }
-      });
-      return itens;
-    });
+    console.log("Procurando itens sem estoque...");
     
-    console.log(`IDs extraídos: ${itensInfo.length}`);
+    const linhas = page.locator('tbody tr:not(.footable-row-detail)');
+    const total = await linhas.count();
     
-    let itensZero = [];
+    console.log(`Total de linhas encontradas: ${total}`);
+    
+    function extrairNumero(texto) {
+      return Number(texto.replace(/[^0-9]/g, '')) || 0;
+    }
+    
+    let itensZero = 0;
     let itensAlterados = [];
     
-    for (const item of itensInfo) {
-      const estoque = extrairNumero(item.estoqueTexto);
-      const precoNumerico = extrairNumero(item.precoTexto);
+    for (let i = 0; i < total; i++) {
+      const linha = linhas.nth(i);
+      const tds = linha.locator('td');
+      
+      const nomeTexto = await tds.nth(0).innerText();
+      const estoqueTexto = await tds.nth(2).innerText();
+      const precoTexto = await tds.nth(4).innerText();
+      const estoque = extrairNumero(estoqueTexto);
+      const precoNumerico = extrairNumero(precoTexto);
       
       if (estoque === 0) {
-        itensZero.push({
-          id: item.id,
-          nome: item.nome,
-          precoTexto: item.precoTexto,
-          precoNumerico: precoNumerico
-        });
-      }
-    }
-    
-    console.log(`Itens sem estoque: ${itensZero.length}`);
-    
-    // Processar itens sem estoque
-    for (const item of itensZero) {
-      console.log(`Processando item: ${item.nome} (ID: ${item.id})`);
-      
-      const urlItem = `https://jogofamous.com/projects?item=${item.id}`;
-      await page.goto(urlItem, { timeout: 60000, waitUntil: 'networkidle' });
-      await page.waitForTimeout(3000);
-      
-      if (item.precoNumerico !== 1) {
-        console.log(`Alterando preço de ${item.precoTexto} para $1`);
+        itensZero++;
+        console.log(`SEM ESTOQUE: ${nomeTexto.trim()} - ${precoTexto.trim()}`);
         
-        try {
-          await page.waitForSelector('a[href="#price-b2"]', { timeout: 10000 });
-          const abaPreco = await page.locator('a[href="#price-b2"]').first();
-          await abaPreco.click();
-          await page.waitForTimeout(2000);
-          
-          await page.waitForSelector('input[name="valoritem"]', { timeout: 10000 });
-          const campoPreco = await page.locator('input[name="valoritem"]').first();
-          await campoPreco.click({ clickCount: 3 });
-          await campoPreco.fill('1');
-          await page.waitForTimeout(1000);
-          
-          const botaoAlterar = await page.locator('input[name="guardarprice"]').first();
-          await botaoAlterar.click();
-          await page.waitForTimeout(3000);
-          
-          console.log(`Preço alterado para $1 com sucesso!`);
+        if (precoNumerico !== 1) {
+          console.log(`Alterando preço de ${precoTexto.trim()} para $1`);
           
           itensAlterados.push({
-            id: item.id,
-            nome: item.nome,
-            precoOriginal: item.precoTexto,
-            precoOriginalNumerico: item.precoNumerico
+            nome: nomeTexto.trim(),
+            precoOriginal: precoTexto.trim(),
+            precoOriginalNumerico: precoNumerico
           });
-        } catch (error) {
-          console.error(`Erro ao alterar preço:`, error.message);
+          
+          try {
+            const botaoGerenciar = await linha.locator('button.btn-dark').first();
+            await botaoGerenciar.hover();
+            await page.waitForTimeout(500);
+            await botaoGerenciar.click();
+            await page.waitForTimeout(3000);
+            
+            await page.waitForSelector('a[href="#price-b2"]', { timeout: 10000 });
+            const abaPreco = await page.locator('a[href="#price-b2"]').first();
+            await abaPreco.click();
+            await page.waitForTimeout(2000);
+            
+            await page.waitForSelector('input[name="valoritem"]', { timeout: 10000 });
+            const campoPreco = await page.locator('input[name="valoritem"]').first();
+            await campoPreco.click({ clickCount: 3 });
+            await campoPreco.fill('1');
+            await page.waitForTimeout(1000);
+            
+            const botaoAlterar = await page.locator('input[name="guardarprice"]').first();
+            await botaoAlterar.click();
+            await page.waitForTimeout(3000);
+            
+            const botaoOk = await page.locator('button.swal2-confirm');
+            if (await botaoOk.count() > 0) {
+              await botaoOk.first().click();
+              await page.waitForTimeout(2000);
+            }
+            
+            console.log(`Preço alterado para $1 com sucesso!`);
+            
+            await page.goto('https://jogofamous.com/projects?c=itens', {
+              timeout: 60000,
+              waitUntil: 'networkidle'
+            });
+            await page.waitForTimeout(3000);
+            
+          } catch (error) {
+            console.error(`Erro ao alterar preço:`, error.message);
+            await page.keyboard.press('Escape').catch(() => {});
+          }
+        } else {
+          console.log(`Item já está com preço $1, pulando...`);
         }
       }
     }
     
-    // Compra de estoque
-    if (itensZero.length > 0) {
-      console.log("\n=== INICIANDO COMPRA DE ESTOQUE ===");
-      
-      await page.goto('https://jogofamous.com/projects?c=itens', {
-        timeout: 60000,
-        waitUntil: 'networkidle'
-      });
-      await page.waitForTimeout(3000);
+    console.log(`Total de itens sem estoque: ${itensZero}`);
+    
+    if (itensZero > 0) {
+      console.log("\n=== INICIANDO COMPRA DE ESTOQUE ===\n");
       
       try {
         const botaoEstoque = await page.locator('button:has-text("Estoque")').first();
@@ -192,65 +174,100 @@ async function executarEstoque() {
         await page.waitForTimeout(3000);
         
         console.log("Compra de estoque realizada com sucesso!");
+        
       } catch (error) {
         console.error("Erro ao comprar estoque:", error.message);
       }
     }
     
-    // Restaurar preços
     if (itensAlterados.length > 0) {
-      console.log("\n=== RESTAURANDO PREÇOS ORIGINAIS ===");
+      console.log("\n=== RESTAURANDO PREÇOS ORIGINAIS ===\n");
       
-      for (const item of itensAlterados) {
-        console.log(`Restaurando preço de ${item.nome} para ${item.precoOriginal}`);
+      await page.goto('https://jogofamous.com/projects?c=itens', {
+        timeout: 60000,
+        waitUntil: 'networkidle'
+      });
+      await page.waitForTimeout(5000);
+      
+      const linhasRestauracao = page.locator('tbody tr:not(.footable-row-detail)');
+      const totalRestauracao = await linhasRestauracao.count();
+      
+      for (let i = 0; i < totalRestauracao; i++) {
+        const linha = linhasRestauracao.nth(i);
+        const tds = linha.locator('td');
         
-        const urlItem = `https://jogofamous.com/projects?item=${item.id}`;
-        await page.goto(urlItem, { timeout: 60000, waitUntil: 'networkidle' });
-        await page.waitForTimeout(3000);
+        const nomeTexto = await tds.nth(0).innerText();
+        const nomeAtual = nomeTexto.trim();
         
-        try {
-          await page.waitForSelector('a[href="#price-b2"]', { timeout: 10000 });
-          const abaPreco = await page.locator('a[href="#price-b2"]').first();
-          await abaPreco.click();
-          await page.waitForTimeout(2000);
+        const itemAlterado = itensAlterados.find(item => item.nome === nomeAtual);
+        
+        if (itemAlterado) {
+          console.log(`Restaurando preço de ${nomeAtual} para ${itemAlterado.precoOriginal}`);
           
-          await page.waitForSelector('input[name="valoritem"]', { timeout: 10000 });
-          const campoPreco = await page.locator('input[name="valoritem"]').first();
-          await campoPreco.click({ clickCount: 3 });
-          await campoPreco.fill(item.precoOriginalNumerico.toString());
-          await page.waitForTimeout(1000);
-          
-          const botaoAlterar = await page.locator('input[name="guardarprice"]').first();
-          await botaoAlterar.click();
-          await page.waitForTimeout(3000);
-          
-          console.log(`Preço restaurado para ${item.precoOriginal} com sucesso!`);
-        } catch (error) {
-          console.error(`Erro ao restaurar preço:`, error.message);
+          try {
+            const botaoGerenciar = await linha.locator('button.btn-dark').first();
+            await botaoGerenciar.hover();
+            await page.waitForTimeout(500);
+            await botaoGerenciar.click();
+            await page.waitForTimeout(3000);
+            
+            await page.waitForSelector('a[href="#price-b2"]', { timeout: 10000 });
+            const abaPreco = await page.locator('a[href="#price-b2"]').first();
+            await abaPreco.click();
+            await page.waitForTimeout(2000);
+            
+            await page.waitForSelector('input[name="valoritem"]', { timeout: 10000 });
+            const campoPreco = await page.locator('input[name="valoritem"]').first();
+            await campoPreco.click({ clickCount: 3 });
+            await campoPreco.fill(itemAlterado.precoOriginalNumerico.toString());
+            await page.waitForTimeout(1000);
+            
+            const botaoAlterar = await page.locator('input[name="guardarprice"]').first();
+            await botaoAlterar.click();
+            await page.waitForTimeout(3000);
+            
+            const botaoOk = await page.locator('button.swal2-confirm');
+            if (await botaoOk.count() > 0) {
+              await botaoOk.first().click();
+              await page.waitForTimeout(2000);
+            }
+            
+            console.log(`Preço restaurado com sucesso!`);
+            
+            await page.goto('https://jogofamous.com/projects?c=itens', {
+              timeout: 60000,
+              waitUntil: 'networkidle'
+            });
+            await page.waitForTimeout(3000);
+            
+          } catch (error) {
+            console.error(`Erro ao restaurar preço:`, error.message);
+          }
         }
       }
+      
+      console.log("\n=== PREÇOS RESTAURADOS COM SUCESSO ===\n");
     }
     
-    console.log(`\n[${new Date().toISOString()}] === PROCESSO DE ESTOQUE FINALIZADO ===`);
+    console.log("\n=== PROCESSO COMPLETO FINALIZADO ===\n");
     await browser.close();
-    return { success: true, itensProcessados: itensZero.length };
     
   } catch (error) {
-    console.error('Erro no estoque:', error.message);
+    console.error('Erro:', error.message);
     await browser.close();
     throw error;
   }
 }
 
-// FUNÇÃO: Coleta de dados (scraping)
-async function executarColetaDados() {
-  console.log(`\n[${new Date().toISOString()}] === INICIANDO COLETA DE DADOS ===`);
-  
+// FUNÇÃO: Coleta de dados (SUA VERSÃO ORIGINAL)
+async function executarBotOriginal() {
   const browser = await chromium.launch({
-    headless: true
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
 
   const page = await browser.newPage();
+  console.log("Carregando");
 
   try {
     await fazerLoginENavegar(page, 'https://jogofamous.com/projects?c=itens');
@@ -285,6 +302,8 @@ async function executarColetaDados() {
     const agora = new Date();
     const horasPassadas = (agora - inicioSemana) / (1000 * 60 * 60);
     const horasRestantes = (fimSemana - agora) / (1000 * 60 * 60);
+    
+    await page.waitForSelector('tbody tr', { timeout: 30000 });
     const linhas = page.locator('tbody tr:not(.footable-row-detail)');
     const total = await linhas.count();
 
@@ -297,6 +316,10 @@ async function executarColetaDados() {
     for (let i = 0; i < total; i++) {
       const linha = linhas.nth(i);
       const tds = linha.locator('td');
+
+      function extrairNumero(texto) {
+        return Number(texto.replace(/[^0-9]/g, '')) || 0;
+      }
 
       try {
         const nomeTexto = await tds.nth(0).innerText();
@@ -335,25 +358,27 @@ async function executarColetaDados() {
         lucroTotal += lucro;
         lucroTotalEstimado += lucroSemanaEstimada;
 
-        console.log(`Produto ${i+1}: ${nome} - Vendas: ${vendas} - Lucro: ${lucro}`);
+        console.log(`Produto ${i+1}: ${nome} - Lucro: ${lucro}`);
 
       } catch (error) {
         console.error(`Erro no item ${i + 1}:`, error.message);
       }
     }
       
+    console.log("Finalizou todos os itens!");
+    console.log(`LUCRO TOTAL: ${lucroTotal.toLocaleString()}`);
+
     const diasRestantes = Math.floor(horasRestantes / 24);
     const horasRestantesFinal = Math.floor(horasRestantes % 24);
     const vendasTotal = produtosArray.reduce((sum, p) => sum + p.vendasSemana, 0);
     const vendasPorHoraMedia = vendasTotal / horasPassadas;
     const vendasPorDiaMedia = vendasPorHoraMedia * 24;
 
-    console.log(`LUCRO TOTAL: ${lucroTotal.toLocaleString()}`);
     console.log(`LOJA RESETA EM: ${diasRestantes}d ${horasRestantesFinal}h`);
 
     await browser.close();
 
-    const dados = {
+    return {
       produtos: produtosArray,
       lucroTotal: lucroTotal,
       lucroTotalEstimado: Math.round(lucroTotalEstimado),
@@ -364,9 +389,6 @@ async function executarColetaDados() {
       totalProdutos: produtosArray.length
     };
 
-    console.log(`\n[${new Date().toISOString()}] === COLETA DE DADOS FINALIZADA ===`);
-    return dados;
-
   } catch (error) {
     console.error('Erro na coleta:', error.message);
     await browser.close();
@@ -374,74 +396,57 @@ async function executarColetaDados() {
   }
 }
 
-// FUNÇÃO PRINCIPAL: Executa primeiro estoque, depois coleta
+// Função para executar ciclo completo
 async function executarCicloCompleto() {
   if (isRunning) {
-    console.log(`[${new Date().toISOString()}] Ciclo já em execução, ignorando...`);
-    return { success: false, message: "Já está rodando" };
+    console.log("Ciclo já em execução, ignorando...");
+    return;
   }
   
   isRunning = true;
-  console.log(`\n${'='.repeat(60)}`);
-  console.log(`[${new Date().toISOString()}] INICIANDO CICLO COMPLETO`);
-  console.log(`${'='.repeat(60)}`);
+  console.log("\n=== INICIANDO CICLO COMPLETO ===\n");
   
   try {
-    // 1. Executa processo de estoque
-    console.log("\nPASSO 1: Executando processo de ESTOQUE...");
-    const resultadoEstoque = await executarEstoque();
-    console.log("ESTOQUE finalizado:", resultadoEstoque);
+    console.log("1. Executando estoque...");
+    await abrirPaginaEstoque();
     
-    // Pequena pausa entre os processos
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    console.log("\n2. Executando coleta de dados...");
+    const dados = await executarBotOriginal();
     
-    // 2. Executa coleta de dados
-    console.log("\nPASSO 2: Executando coleta de DADOS...");
-    const dadosColetados = await executarColetaDados();
-    console.log("COLETA finalizada:", {
-      totalProdutos: dadosColetados.totalProdutos,
-      lucroTotal: dadosColetados.lucroTotal
-    });
-    
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`[${new Date().toISOString()}] CICLO COMPLETO FINALIZADO COM SUCESSO`);
-    console.log(`${'='.repeat(60)}\n`);
-    
-    isRunning = false;
-    return { success: true, estoque: resultadoEstoque, dados: dadosColetados };
-    
+    console.log("\n=== CICLO COMPLETO FINALIZADO ===\n");
+    return dados;
   } catch (error) {
-    console.error(`\nERRO no ciclo completo:`, error.message);
+    console.error("Erro no ciclo completo:", error.message);
+  } finally {
     isRunning = false;
-    throw error;
   }
 }
 
-// ROTAS DA API
-app.post('/api/full-cycle', async (req, res) => {
-  console.log("\nRequisição manual para ciclo completo recebida");
+// ROTAS
+app.post('/api/open-stock', async (req, res) => {
+  console.log("\nAbrindo pagina de estoque...\n");
   try {
-    const resultado = await executarCicloCompleto();
-    res.json({ success: true, ...resultado });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.post('/api/stock', async (req, res) => {
-  console.log("\nRequisição manual para estoque recebida");
-  try {
-    const resultado = await executarEstoque();
-    res.json({ success: true, ...resultado });
+    await abrirPaginaEstoque();
+    res.json({ success: true, message: "Estoque processado com sucesso!" });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 app.post('/api/scrape', async (req, res) => {
-  console.log("\nRequisição manual para coleta recebida");
+  console.log("\nIniciando coleta de dados...\n");
   try {
-    const dados = await executarColetaDados();
+    const dados = await executarBotOriginal();
+    res.json({ success: true, data: dados });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post('/api/full-cycle', async (req, res) => {
+  console.log("\nIniciando ciclo completo...\n");
+  try {
+    const dados = await executarCicloCompleto();
     res.json({ success: true, data: dados });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -449,43 +454,24 @@ app.post('/api/scrape', async (req, res) => {
 });
 
 app.get('/api/status', (req, res) => {
-  res.json({ 
-    running: isRunning,
-    lastCheck: new Date().toISOString()
-  });
+  res.json({ running: isRunning, lastCheck: new Date().toISOString() });
 });
 
 app.get('/api/test', (req, res) => {
   res.json({ success: true, message: "Servidor está rodando!" });
 });
 
-// CONFIGURAÇÃO DO CRON - Roda a cada hora (:02)
-// Cron: 2 * * * * = Aos 2 minutos de cada hora
-const cronJob = cron.schedule('2 * * * *', async () => {
-  console.log(`\nCRON JOB DISPARADO - Executando ciclo programado da hora`);
+// Cron job: roda todo dia às 2h da manhã (horário de menor movimento)
+cron.schedule('0 2 * * *', async () => {
+  console.log("Executando ciclo programado (diário)");
   await executarCicloCompleto();
 }, {
   scheduled: true,
   timezone: "America/Sao_Paulo"
 });
 
-// Iniciar servidor
 app.listen(PORT, () => {
   console.log(`\nServidor rodando em http://localhost:${PORT}`);
-  console.log(`Dashboard disponível em http://localhost:${PORT}/index.html`);
-  console.log(`\nCRON configurado para executar aos 2 minutos de cada hora (Horário SP)`);
-  console.log(`Sequência: ESTOQUE → COLETA DE DADOS`);
-  console.log(`\nEndpoints disponíveis:`);
-  console.log(`   POST /api/full-cycle - Executar ciclo completo manual`);
-  console.log(`   POST /api/stock - Executar apenas estoque`);
-  console.log(`   POST /api/scrape - Executar apenas coleta`);
-  console.log(`   GET  /api/status - Verificar status`);
-  console.log(`\nSistema pronto para deploy no Koyeb!\n`);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('Recebido SIGTERM, encerrando...');
-  cronJob.stop();
-  process.exit(0);
+  console.log(`Dashboard: http://localhost:${PORT}/index.html`);
+  console.log(`Cron configurado para rodar diariamente às 2h`);
 });
