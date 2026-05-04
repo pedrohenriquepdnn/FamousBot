@@ -1,4 +1,4 @@
-// script.js
+// script.js - Atualize a URL do backend
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
 import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
@@ -13,20 +13,23 @@ const firebaseConfig = {
     measurementId: "G-KB5RXM3L0B"
 };
 
-// Inicializar Firebase
+// URL do backend - mude para a URL do seu Koyeb após o deploy
+const BACKEND_URL = process.env.NODE_ENV === 'production' 
+    ? 'https://seu-app.koyeb.app'  // ← SUBSTITUA PELA URL DO SEU KOYEB
+    : 'http://localhost:3000';
+
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const COLLECTION_NAME = 'store_analytics';
 
 let produtosData = [];
 
-// Função para formatar números sem decimais
+// Funções de formatação...
 function formatarNumero(valor) {
     if (valor === undefined || valor === null) return '0';
     return Math.round(valor).toLocaleString();
 }
 
-// Função para formatar números com 1 casa decimal (apenas quando necessário)
 function formatarNumeroDecimal(valor) {
     if (valor === undefined || valor === null) return '0';
     return Math.round(valor * 10) / 10;
@@ -63,8 +66,8 @@ async function getLatestFromFirebase() {
     }
 }
 
-// Executar bot via backend
-async function executarBot() {
+// Executar ciclo completo via backend
+async function executarCicloCompleto() {
     const statusBar = document.getElementById('statusBar');
     const updateBtn = document.getElementById('updateBtn');
     
@@ -73,28 +76,28 @@ async function executarBot() {
         updateBtn.classList.add('disabled');
         updateBtn.disabled = true;
         
-        mostrarMensagem("Executando bot, aguarde...", "info");
+        mostrarMensagem("Executando ciclo completo (estoque + coleta), aguarde...", "info");
         
-        const response = await fetch('http://localhost:3000/api/scrape', {
+        const response = await fetch(`${BACKEND_URL}/api/full-cycle`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
         
         const result = await response.json();
         
-        if (result.success) {
-            await saveToFirebase(result.data);
-            produtosData = result.data.produtos;
-            atualizarInterface(result.data);
+        if (result.success && result.dados) {
+            await saveToFirebase(result.dados);
+            produtosData = result.dados.produtos;
+            atualizarInterface(result.dados);
             atualizarUltimaAtualizacao(new Date().toISOString());
-            mostrarMensagem(`Dados atualizados! ${result.data.totalProdutos} produtos carregados.`, "success");
+            mostrarMensagem(`Ciclo completo finalizado! ${result.dados.totalProdutos} produtos carregados.`, "success");
         } else {
-            throw new Error(result.error);
+            throw new Error(result.error || "Erro na execução");
         }
         
     } catch (error) {
         console.error("Erro:", error);
-        mostrarMensagem("Erro ao coletar dados. Verifique se o servidor está rodando.", "error");
+        mostrarMensagem(`Erro: ${error.message}`, "error");
         
         const backup = await getLatestFromFirebase();
         if (backup) {
@@ -111,47 +114,62 @@ async function executarBot() {
     }
 }
 
-// Atualizar interface
+// Função apenas para estoque
+async function executarEstoque() {
+    const statusBar = document.getElementById('statusBar');
+    
+    try {
+        statusBar.style.display = 'block';
+        mostrarMensagem("Executando reposição de estoque, aguarde...", "info");
+        
+        const response = await fetch(`${BACKEND_URL}/api/stock`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            mostrarMensagem(`Estoque atualizado! ${result.itensProcessados || 0} itens processados.`, "success");
+        } else {
+            throw new Error(result.error);
+        }
+        
+    } catch (error) {
+        console.error("Erro:", error);
+        mostrarMensagem(`Erro no estoque: ${error.message}`, "error");
+    } finally {
+        setTimeout(() => {
+            statusBar.style.display = 'none';
+        }, 3000);
+    }
+}
+
+// Resto do código (atualizarInterface, renderizarTabela, etc.)
 function atualizarInterface(data) {
     document.getElementById('totalLucro').textContent = `$ ${formatarNumero(data.lucroTotal || 0)}`;
     document.getElementById('totalLucroEstimado').textContent = `$ ${formatarNumero(data.lucroTotalEstimado || 0)}`;
     document.getElementById('vendasPorHora').textContent = formatarNumero(data.vendasPorHoraMedia || 0);
     document.getElementById('vendasPorDia').textContent = formatarNumero(data.vendasPorDiaMedia || 0);
     document.getElementById('totalProdutos').textContent = (data.produtos || []).length;
-    
     renderizarTabela(produtosData);
 }
 
 function getEstoqueColor(estoque, vendasPorHora) {
-    // Vermelho = estoque 0
-    if (estoque === 0) {
-        return 'estoque-vermelho';
-    }
-    
-    // Se não tem venda, estoque normal
-    if (vendasPorHora === 0) {
-        return 'estoque-normal';
-    }
-    
-    // Calcula quantas HORAS de estoque restam (usando o estoque REAL do produto)
+    if (estoque === 0) return 'estoque-vermelho';
+    if (vendasPorHora === 0) return 'estoque-normal';
     const horasRestantes = estoque / vendasPorHora;
-    
-    // Amarelo = estoque vai acabar nas próximas 3 horas
-    if (horasRestantes <= 3) {
-        return 'estoque-amarelo';
-    }
-    
+    if (horasRestantes <= 3) return 'estoque-amarelo';
     return 'estoque-normal';
 }
 
-// Renderizar tabela
 function renderizarTabela(produtos) {
     const tableBody = document.getElementById('tableBody');
     const searchTerm = document.getElementById('searchInput')?.value.toLowerCase() || '';
     const sortBy = document.getElementById('sortSelect')?.value || 'lucro';
     
     if (!produtos || produtos.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="10" class="loading">Nenhum produto encontrado</td</tr>';
+        tableBody.innerHTML = '<tr><td colspan="10" class="loading">Nenhum produto encontrado</td></tr>';
         return;
     }
     
@@ -169,7 +187,6 @@ function renderizarTabela(produtos) {
     
     tableBody.innerHTML = filtered.map(p => {
         const corEstoque = getEstoqueColor(p.estoque, p.vendasPorHora);
-        
         return `
             <tr>
                 <td>${p.produtoIndex}</td>
@@ -219,7 +236,6 @@ function mostrarMensagem(mensagem, tipo) {
     }
 }
 
-// Carregar dados iniciais
 async function carregarDadosIniciais() {
     const data = await getLatestFromFirebase();
     if (data) {
@@ -229,11 +245,11 @@ async function carregarDadosIniciais() {
     }
 }
 
-// Eventos
-document.getElementById('updateBtn')?.addEventListener('click', executarBot);
+// Eventos - atualizado para usar o ciclo completo
+document.getElementById('updateBtn')?.addEventListener('click', executarCicloCompleto);
+document.getElementById('estoqueBtn')?.addEventListener('click', executarEstoque);
 document.getElementById('searchInput')?.addEventListener('input', () => renderizarTabela(produtosData));
 document.getElementById('sortSelect')?.addEventListener('change', () => renderizarTabela(produtosData));
 
-// Iniciar
 carregarDadosIniciais();
-console.log("Dashboard pronta!");
+console.log("Dashboard pronta com backend:", BACKEND_URL);
